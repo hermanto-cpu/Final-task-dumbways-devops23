@@ -262,7 +262,7 @@ Arsitektur
 
 ```.yml
 - name: Install Docker
-  hosts: app_server
+  hosts: app_server, gateway_server
   become: true
   tasks:
     - name: Install required packages
@@ -304,7 +304,10 @@ Arsitektur
         name: finaltask-totywan
         groups: docker
         append: yes
-
+- name: Run Docker Registry
+  hosts: app_server
+  become: true
+  tasks:
     - name: Create registry data dir
       file:
         path: /home/finaltask-totywan/registry/data
@@ -484,6 +487,15 @@ Arsitektur
 
 3. Buat `.env` file di fe-dumbmerch
 
+- Untuk staging
+
+```
+cd /home/finaltask-totywan/final-task-app/fe-dumbmerch
+echo "REACT_APP_BASEURL=https://staging.api.hermanto.studentdumbways.my.id/api/v1" > .env
+```
+
+- Untuk prod
+
 ```
 cd /home/finaltask-totywan/final-task-app/fe-dumbmerch
 echo "REACT_APP_BASEURL=https://api.hermanto.studentdumbways.my.id/api/v1" > .env
@@ -515,12 +527,12 @@ CMD ["nginx", "-g", "daemon off;"]
 
 - command `-g "daemon off;"`: memberi tahu nginx jangan masuk background (daemon), tetap di foreground. Karena Docker container akan berhenti kalau proses utamanya selesai. Maka nginx harus tetap aktif di depan (foreground).
 
-- Images hasil Dockerfile tersebut akan lebih ringan.
+- Setelah itu image hasil Dockerfile tersebut akan lebih ringan.
 
 5. Build docker file menggunakan nama domain registry beserta tag agar dapat langsung kita pull ke registry private kita. Ex: `docker build -t registry.hermanto.studentdumbways.my.id/fe-dumbmerch:staging .`
    ![ansible](img/build.png)
 
-6. Cek Docker Images dan jalankan image front-end yang telah dibuild `docker run -d --name frontend-app -p 3000:80 registry.hermanto.studentdumbways.my.id/fe-dumbmerch:staging`
+6. Cek Docker Images dan jalankan image front-end yang telah dibuild `docker run -d --name frontend-staging -p 3000:80 registry.hermanto.studentdumbways.my.id/fe-dumbmerch:staging`
    ![ansible](img/cek.png)
 
 7. Cek apakah front-end dapat diakses dan dirender melalui browser
@@ -697,6 +709,200 @@ services:
 
 ---
 
-```
+1. Pastikan semua domain memiliki konfigurasi
+
+- registry.hermanto.studentdumbways.my.id
 
 ```
+server {
+    listen 80;
+    server_name registry.hermanto.studentdumbways.my.id;
+
+    location / {
+        proxy_pass http://103.127.137.206:5000;
+    }
+}
+
+```
+
+_Staging_
+
+- staging.hermanto.studentdumbways.my.id
+
+```
+server {
+    listen 80;
+    server_name staging.hermanto.studentdumbways.my.id;
+
+    location / {
+        proxy_pass http://103.127.137.206:3000;
+    }
+}
+
+```
+
+- api.staging.hermanto.studentdumbways.my.id
+
+```
+server {
+    listen 80;
+    server_name api.staging.hermanto.studentdumbways.my.id;
+
+    location / {
+        proxy_pass http://103.127.137.206:5001;
+    }
+}
+
+```
+
+_Production_
+
+- hermanto.studentdumbways.my.id
+
+```
+server {
+    listen 80;
+    server_name hermanto.studentdumbways.my.id;
+
+    location / {
+        proxy_pass http://103.127.137.206:3002;
+    }
+}
+```
+
+- api.hermanto.studentdumbways.my.id
+
+```
+server {
+    listen 80;
+    server_name api.hermanto.studentdumbways.my.id;
+
+    location / {
+        proxy_pass http://103.127.137.206:5002;
+    }
+}
+
+```
+
+_Monitoring_
+
+- monitoring.hermanto.studentdumbways.my.id
+
+```
+server {
+    listen 80;
+    server_name monitoring.hermanto.studentdumbways.my.id;
+
+    location / {
+        proxy_pass http://103.127.138.159:3000;
+    }
+}
+
+```
+
+- prom.hermanto.studentdumbways.my.id
+
+```
+server {
+    listen 80;
+    server_name prom.hermanto.studentdumbways.my.id;
+
+    location / {
+        proxy_pass http://103.127.138.159:9000;
+    }
+}
+
+```
+
+- exporter.hermanto.studentdumbways.my.id
+
+```
+  server {
+  listen 80;
+  server_name exporter.hermanto.studentdumbways.my.id;
+
+        location / {
+            proxy_pass http://103.127.137.206:9100;
+      }
+
+  }
+```
+
+- exporter2.hermanto.studentdumbways.my.id
+
+```
+  server {
+  listen 80;
+  server_name exporter.hermanto.studentdumbways.my.id;
+
+        location / {
+            proxy_pass http://103.127.138.159:9100;
+      }
+
+  }
+```
+
+2. Jalankan `sudo nginx -t` lalu reload nginx jika semua konfigurasi ok `sudo systemctl reload nginx`
+
+3. Konfigurasi semua domain agar HTTPS menggunakan wildcard cerbot, step by step bisa dilihat di dokumentasi
+   ([Cerbot Wildcard Instruction](https://certbot.eff.org/instructions?ws=nginx&os=snap&tab=wildcard))
+4. Setelah selesai maka akan ada sertifikat ssl di `/etc/letsencrypt/live/hermanto.studentdumbways.my.id/`
+
+5. Pasang file sertif SSL fullchain.pem dan privkey.pem di semua konfigurasi reverse proxy nginx. Dapat menggunakan command seperti dibawah ini:
+
+```
+for file in *; do
+  sudo sed -i '/server *{/a\
+    listen 443 ssl;\
+    ssl_certificate /etc/letsencrypt/live/hermanto.studentdumbways.my.id/fullchain.pem;\
+    ssl_certificate_key /etc/letsencrypt/live/hermanto.studentdumbways.my.id/privkey.pem;\
+  ' "$file"
+done
+
+```
+
+![ansible](img/ssl.png)
+
+6. Lanjut ke auto renew SSL karena Sertifikat dari Let's Encrypt (Certbot) hanya berlaku selama 90 hari. Jadi, perlu diperpanjang otomatis agar tidak kedaluwarsa. Buat ansible-playbook
+
+```renew-ssl.yml
+- name: Setup SSL Wildcard Renewal Script
+  hosts: gateway_server
+  become: yes
+
+  vars:
+    certbot_credentials_path: "/home/{{ ansible_user }}/.secrets/cloudflare.ini"
+    ssl_renewal_script_path: "/opt/ssl-renewal.sh"
+    ssl_renewal_log: "/var/log/ssl-renewal.log"
+
+  tasks:
+    - name: Create SSL renewal script
+      copy:
+        dest: "{{ ssl_renewal_script_path }}"
+        mode: "0755"
+        content: |
+          #!/bin/bash
+          echo "==== [ $(date) ] Starting SSL Renewal ===="
+          certbot renew \
+            --dns-cloudflare \
+            --dns-cloudflare-credentials {{ certbot_credentials_path }} \
+            --deploy-hook "systemctl reload nginx"
+          echo "==== [ $(date) ] SSL Renewal Completed ===="
+
+    - name: Ensure cron job exists to run SSL renewal daily
+      cron:
+        name: "Daily SSL Certbot Renewal"
+        job: "{{ ssl_renewal_script_path }} >> {{ ssl_renewal_log }} 2>&1"
+        minute: 0
+        hour: 3
+        user: root
+
+```
+
+7. Jalankan ansible-playbook
+   ![ansible](img/renew.png)
+
+8. Tes apakah script berjalan dengan baik ketika dijalankan
+   ![ansible](img/tes-renew.png)
+
+---
