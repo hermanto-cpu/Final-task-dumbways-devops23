@@ -679,6 +679,215 @@ services:
 
 ---
 
+1. Install Exporter di tiap server untuk mengambil data metrics dari server tersebut, Dapat juga Install Prometheus dan Grafana di gateway server agar tidak terlalu membebankan app server (disini saya install Prometheus di app_server). Dapat menggunakan Ansible untuk mempermudah. Buat file `.yml` tiap image yang akan dijalankan via docker
+
+- grafana.yml
+
+```grafana.yml
+version: "3.8"
+
+services:
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+```
+
+- node-exporter.yml
+
+```node-exporter.yml
+version: "3.8"
+
+services:
+  node-exporter:
+    image: prom/node-exporter
+    container_name: node-exporter
+    ports:
+      - 9100:9100
+    restart: unless-stopped
+    pid: "host"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/rootfs"
+```
+
+- prometheus.yml
+
+```prometheus.yml
+version: "3.8"
+
+services:
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus
+    volumes:
+      - ./prometheus:/etc/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--web.enable-lifecycle"
+    restart: unless-stopped
+```
+
+2. Buat file `prometheus.yml` didalam folder prometheus untuk konfigurasi prometheus yang akan mengelola data metrics yang dikeluarkan oleh exporter.
+
+```prometheus.yml
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "final-task"
+    static_configs:
+      - targets: ["exporter.hermanto.studentdumbways.my.id", "exporter2.hermanto.studentdumbways.my.id"]
+```
+
+3. Buat file Ansible playbook
+
+```finaltask-monitorinf.yml
+- name: Setup Monitoring
+  hosts: app_server,gateway_server
+  become: true
+  vars:
+    locale: ./monitoring
+    remote: /home/finaltask-totywan/monitoring
+  tasks:
+    - name: Buat direktori monitoring di server
+      file:
+        path: "{{ remote }}"
+        state: directory
+    - name: Buat direktori monitoring/prometheus di server
+      file:
+        path: "{{ remote }}/prometheus"
+        state: directory
+
+    - name: Copy node-exporter.yml ke remote
+      copy:
+        src: "{{ locale }}/node-exporter.yml"
+        dest: "{{ remote }}/node-exporter.yml"
+
+    - name: Jalankan node-exporter dengan docker compose
+      community.docker.docker_compose_v2:
+        files:
+          - node-exporter.yml
+        project_name: monitoring
+        project_src: "{{ remote }}"
+
+- name: Setup Prometheus hanya di gateway_server
+  hosts: app_server
+  become: true
+  vars:
+    locale: ./monitoring
+    remote: /home/finaltask-totywan/monitoring
+  tasks:
+    - name: Salin docker-compose prometheus.yml ke remote
+      copy:
+        src: "{{ locale }}/prometheus.yml"
+        dest: "{{ remote }}/prometheus.yml"
+
+    - name: Salin config prometheus.yml ke folder prometheus
+      copy:
+        src: "{{ locale }}/prometheus/prometheus.yml"
+        dest: "{{ remote }}/prometheus/prometheus.yml"
+
+    - name: Jalankan prometheus
+      community.docker.docker_compose_v2:
+        files:
+          - prometheus.yml
+        project_name: monitoring
+        project_src: "{{ remote }}"
+
+- name: Jalankan Grafana di gateway_server saja
+  hosts: gateway_server
+  become: true
+  vars:
+    locale: ./monitoring
+    remote: /home/finaltask-totywan/monitoring
+  tasks:
+    - name: Copy grafana.yml ke remote
+      copy:
+        src: "{{ locale }}/grafana.yml"
+        dest: "{{ remote }}/grafana.yml"
+
+    - name: Jalankan Grafana
+      community.docker.docker_compose_v2:
+        files:
+          - grafana.yml
+        project_name: monitoring
+        project_src: "{{ remote }}"
+
+```
+
+4. Sehingga di local Ansible seperti ini susunan foldernya :
+
+```
+ansible/
+├── finaltask-monitoring.yml
+├── inventory
+└── monitoring/
+    ├── grafana.yml
+    ├── node-exporter.yml
+    ├── prometheus.yml
+    └── prometheus/
+        └── prometheus.yml
+
+```
+
+5. Jalankan ansible-playbook lalu cek apakah task berhasil berjalan tanpa ada yang keliru.
+   ![ansible](img/ps-a1.png)
+   ![ansible](img/ps-a.png)
+   ![ansible](img/browser.png)
+   ![ansible](img/up.png)
+
+6. Lanjut untuk membuat basic auth untuk Prometheus. Install module bcrypt dari python 3 `sudo apt-get -y install python3-bcrypt` di local komputer menggunakan WSL
+
+7. Buat file generate password `nano generate_password.py`
+
+```
+import getpass
+import bcrypt
+
+password = getpass.getpass("Enter a password: ")
+hashed_password = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+print(hashed_password.decode())
+```
+
+8. Jalankan `python3 generate_password.py` dan buat password dari sana
+   ![ansible](img/pw.png)
+
+9. Copy password yang telah di bcrypt tersebut lalu masukkan ke file `sudo nano /etc/prometheus/web.yml`
+   ![ansible](img/web.png)
+
+10. Masukkan web config ke aplikasi prometheus `--web.config.file=/etc/prometheus/web.yml` (dalam kasus saya saya build ulang menggunakan docker compose)
+    ![ansible](img/prom.png)
+    ![ansible](img/prom2.png)
+
+11. Coba akses Prometheus.
+    ![Preview](img/gif.gif)
+
+12. Masuk ke grafana
+
+13. Tambahkan data source prometheus beserta basic authentication
+    ![Preview](img/ds.png)
+
+14. Save and tes apakah ada error
+    ![Preview](img/sv.png)
+
+15. Buat dashboard untuk memonitor:
+
+- Disk
+- Memory Usage
+- CPU Usage
+- VM Network
+- Monitoring all of container resources on VM
+
 ## 8 - Web Server
 
 **Instructions**
@@ -714,13 +923,15 @@ services:
 - registry.hermanto.studentdumbways.my.id
 
 ```
+
 server {
-    listen 80;
-    server_name registry.hermanto.studentdumbways.my.id;
+listen 80;
+server_name registry.hermanto.studentdumbways.my.id;
 
     location / {
         proxy_pass http://103.127.137.206:5000;
     }
+
 }
 
 ```
@@ -730,13 +941,15 @@ _Staging_
 - staging.hermanto.studentdumbways.my.id
 
 ```
+
 server {
-    listen 80;
-    server_name staging.hermanto.studentdumbways.my.id;
+listen 80;
+server_name staging.hermanto.studentdumbways.my.id;
 
     location / {
         proxy_pass http://103.127.137.206:3000;
     }
+
 }
 
 ```
@@ -744,13 +957,15 @@ server {
 - api.staging.hermanto.studentdumbways.my.id
 
 ```
+
 server {
-    listen 80;
-    server_name api.staging.hermanto.studentdumbways.my.id;
+listen 80;
+server_name api.staging.hermanto.studentdumbways.my.id;
 
     location / {
         proxy_pass http://103.127.137.206:5001;
     }
+
 }
 
 ```
@@ -760,26 +975,31 @@ _Production_
 - hermanto.studentdumbways.my.id
 
 ```
+
 server {
-    listen 80;
-    server_name hermanto.studentdumbways.my.id;
+listen 80;
+server_name hermanto.studentdumbways.my.id;
 
     location / {
         proxy_pass http://103.127.137.206:3002;
     }
+
 }
+
 ```
 
 - api.hermanto.studentdumbways.my.id
 
 ```
+
 server {
-    listen 80;
-    server_name api.hermanto.studentdumbways.my.id;
+listen 80;
+server_name api.hermanto.studentdumbways.my.id;
 
     location / {
         proxy_pass http://103.127.137.206:5002;
     }
+
 }
 
 ```
@@ -789,13 +1009,15 @@ _Monitoring_
 - monitoring.hermanto.studentdumbways.my.id
 
 ```
+
 server {
-    listen 80;
-    server_name monitoring.hermanto.studentdumbways.my.id;
+listen 80;
+server_name monitoring.hermanto.studentdumbways.my.id;
 
     location / {
         proxy_pass http://103.127.138.159:3000;
     }
+
 }
 
 ```
@@ -803,13 +1025,15 @@ server {
 - prom.hermanto.studentdumbways.my.id
 
 ```
+
 server {
-    listen 80;
-    server_name prom.hermanto.studentdumbways.my.id;
+listen 80;
+server_name prom.hermanto.studentdumbways.my.id;
 
     location / {
         proxy_pass http://103.127.138.159:9000;
     }
+
 }
 
 ```
@@ -817,29 +1041,33 @@ server {
 - exporter.hermanto.studentdumbways.my.id
 
 ```
-  server {
-  listen 80;
-  server_name exporter.hermanto.studentdumbways.my.id;
+
+server {
+listen 80;
+server_name exporter.hermanto.studentdumbways.my.id;
 
         location / {
             proxy_pass http://103.127.137.206:9100;
       }
 
-  }
+}
+
 ```
 
 - exporter2.hermanto.studentdumbways.my.id
 
 ```
-  server {
-  listen 80;
-  server_name exporter.hermanto.studentdumbways.my.id;
+
+server {
+listen 80;
+server_name exporter2.hermanto.studentdumbways.my.id;
 
         location / {
             proxy_pass http://103.127.138.159:9100;
       }
 
-  }
+}
+
 ```
 
 2. Jalankan `sudo nginx -t` lalu reload nginx jika semua konfigurasi ok `sudo systemctl reload nginx`
@@ -851,12 +1079,13 @@ server {
 5. Pasang file sertif SSL fullchain.pem dan privkey.pem di semua konfigurasi reverse proxy nginx. Dapat menggunakan command seperti dibawah ini:
 
 ```
-for file in *; do
-  sudo sed -i '/server *{/a\
-    listen 443 ssl;\
-    ssl_certificate /etc/letsencrypt/live/hermanto.studentdumbways.my.id/fullchain.pem;\
-    ssl_certificate_key /etc/letsencrypt/live/hermanto.studentdumbways.my.id/privkey.pem;\
-  ' "$file"
+
+for file in _; do
+sudo sed -i '/server _{/a\
+ listen 443 ssl;\
+ ssl_certificate /etc/letsencrypt/live/hermanto.studentdumbways.my.id/fullchain.pem;\
+ ssl_certificate_key /etc/letsencrypt/live/hermanto.studentdumbways.my.id/privkey.pem;\
+ ' "$file"
 done
 
 ```
