@@ -888,6 +888,103 @@ print(hashed_password.decode())
 - VM Network
 - Monitoring all of container resources on VM
 
+16. Untuk memonitor semua container yang berjalan di setiap serverm dapat menggunakan cAdvisor
+
+17. Jalankan cAdvisor di tiap server menggunakan docker
+
+```
+# monitoring/cadvisor.yml
+version: "3.8"
+services:
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    restart: unless-stopped
+
+```
+
+18. Jalankan via docker compose di tiap server.
+    ![Preview](img/ca.png)
+
+19. Tambahkan confignya bagian scrape_configs di `prometheus/prometheus.yml`
+
+```
+scrape_configs:
+ <!--Kode lain  -->
+  - job_name: "cadvisor"
+    static_configs:
+      - targets: ["103.127.137.206:8080", "103.127.138.159:8080"]
+
+```
+
+![Preview](img/dcca.png)
+
+20. Restart prometheus.
+    ![Preview](img/ca.png)
+    ![Preview](img/ca2.png)
+    ![Preview](img/ca3.png)
+
+21. Masuk ke grafana dan buat dashboard untuk node-exporter full dan cAdvisor
+
+- dashboard template dari grafana ID 1860
+  ![Preview](img/node.png)
+- dashboard template dari grafana ID 193
+  ![Preview](img/193.png)
+- dashboard template dari grafana ID 15331
+  ![Preview](img/15.png)
+
+22. Buat alerting. Pertama buat bot dulu menggunakan @BotFather -> /newbot -> Simpan BOT TOKEN
+
+23. Buka link `api.telegram.org/bot<BOT_TOKEN>/getUpdates` untuk melihat pesan JSON yang dikirim dan ambil id dari JSON tersebut agar pesan dari bot terkirim ke user dengan chat id tersebut.
+    ![Preview](img/bot1.png)
+    ![Preview](img/bot2.png)
+    ![Preview](img/bot3.png)
+
+24. Masuk ke Grafana → Alerting → Contact points → Tambahkan Telegram → Isi Bot Token dan Chat ID
+    ![Preview](img/alert.png)
+    ![Preview](img/alert2.png)
+
+25. Buat alert rule
+
+26. CPU Usage Alert
+
+- Masukkan PromQL `100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)`
+- Condition: WHEN > 80
+- Konfigurasikan lainnya
+
+27. RAM Usage Alert
+
+- Masukkan PromQL `((node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes) * 100`
+- Condition: WHEN > 85
+- Konfigurasikan lainnya
+
+28. Free Disk Space Alert
+
+- Masukkan PromQL `(node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}) / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} * 100`
+- Condition: WHEN < 10 (berarti sisa disk kurang dari 10% total kapasitas)
+- Konfigurasikan lainnya
+
+29. Network I/O (NGINX Monitoring)
+    > [!NOTE]
+    > mendeteksi network spike atau stagnasi, kamu bisa awasi eth0 untuk bandwidth yang sangat tinggi atau sangat rendah.
+
+- Masukkan PromQL (Total Receive + Transmit) `rate(node_network_receive_bytes_total{device="eth0"}[2m]) + rate(node_network_transmit_bytes_total{device="eth0"}[2m])`
+- Condition: WHEN > 10000000 ( alert kalau bandwidth > 10MB/s)
+- Konfigurasikan lainnya
+  ![Preview](img/ar.png)
+
+30. Tes apakah alerting dapat memberi notif via bot telegram dengan mentrigger (misalnya penggunaan RAM seperti ss dibawah)
+    ![Preview](img/tg.png)
+    ![Preview](img/notif.png)
+    > Template notifikasi dapat di edit dan disesuaikan dengan kebutuhan agar dapat lebih menarik dan mudah dipahami
+
 ## 8 - Web Server
 
 **Instructions**
