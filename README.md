@@ -658,6 +658,204 @@ services:
 
 ---
 
+1. Jalankan Jenkins menggunakan Docker di port yang berbeda dengan cAdvisor (Monitoring untuk Task 7) `docker run -d -v jenkins_home:/var/jenkins_home -p 8180:8080 -p 50000:50000 --restart=on-failure jenkins/jenkins:lts-jdk17`
+
+2. Buka logs dari container Jenkins untuk mengambil password administrator
+
+3. Konfigurasikan credential SSH (gunakan 1 ssh yang dari awal) untuk akun github dan untuk pipeline ke server.
+
+4. Masuk ke Manage Jenkins > Credentials > (global) > (Add Credentials) > Kind: SSH Username with private key
+
+5. Gunakan Private key untuk server dan Github.
+
+6. Apabila di server tidak ada known_host, atur security Host Key Verification Strategy di Jenkins menjadi Accept first connection agar dapat mengenerate untuk pertama kali.
+
+7. Buat pipeline untuk finaltask-app staging
+
+8. Install SonarQube
+
+9. Akses via browser
+
+- Login default:
+
+- Username: admin
+
+- Password: admin
+
+10. Buat Token di sonarqube. Masuk Administrator > Security > User > Click Generate Token > Copy Token
+
+11. Masukkan Token tersebut di Jenkins. Masuk Jenkins > Manage Jenkins > System > Scroll kebawah > Isi token dengan add server authentication token > Pilih Secret text > Lalu pilih server authentication token yang telah ditambahkan tadi
+
+12. Masuk ke Manage Jenkins > tool > Scroll kebawah hingga menemukan Sonarscanner > Beri nama sesuai untuk tool tempat sonar scanner
+
+13. Di Repo Staging buat Jenkinsfile berikut
+
+```
+def secret = 'finaltask-totywan-app-server'
+def server = 'finaltask-totywan@103.127.137.206'
+def sshPort = '1234'
+def directory = '/home/finaltask-totywan/final-task-app'
+def directoryFe = "${directory}/fe-dumbmerch"
+def directoryBe = "${directory}/be-dumbmerch"
+def branch = 'staging'
+def imageFe = 'registry.hermanto.studentdumbways.my.id/fe-dumbmerch:staging'
+def imageBe = 'registry.hermanto.studentdumbways.my.id/be-dumbmerch:staging'
+def sonarqube = 'jenkins-sq'
+pipeline {
+    agent any
+    stages {
+        stage ('Pull Latest Code from GitHub') {
+            steps {
+                sshagent([secret]) {
+                    sh """
+                        ssh -p ${sshPort} -o StrictHostKeyChecking=no ${server} << EOF
+                            cd ${directory}
+                            git pull origin ${branch}
+                            echo "✅ Pulled latest code"
+                            exit
+                        EOF
+                    """
+                }
+            }
+        }
+
+        stage ('Build Docker Image FE') {
+            steps {
+                sshagent([secret]) {
+                    sh """
+                        ssh -p ${sshPort} -o StrictHostKeyChecking=no ${server} << EOF
+                            cd ${directoryFe}
+                            docker build -t ${imageFe} .
+                            docker push ${imageFe}
+                            echo "✅ Frontend image built & pushed"
+                            exit
+                        EOF
+                    """
+                }
+            }
+        }
+
+        stage ('Build Docker Image BE') {
+            steps {
+                sshagent([secret]) {
+                    sh """
+                        ssh -p ${sshPort} -o StrictHostKeyChecking=no ${server} << EOF
+                            cd ${directoryBe}
+                            docker build -t ${imageBe} .
+                            docker push ${imageBe}
+                            echo "✅ Backend image built & pushed"
+                            exit
+                        EOF
+                    """
+                }
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            environment {
+                scannerHome = tool 'Sonar'
+            }
+            steps {
+                script {
+                    withSonarQubeEnv('jenkins-sq') {
+                        sh "${scannerHome}/bin/sonar-scanner \
+                            -Dsonar.projectKey=Jenkins \
+                            -Dsonar.projectName=Jenkins \
+                            -Dsonar.sources=."
+                    }
+                }
+            }
+        }
+
+
+        stage('Deploy Frontend Container') {
+            steps {
+                sshagent([secret]) {
+                    sh """
+                        ssh -p ${sshPort} -o StrictHostKeyChecking=no ${server} << EOF
+                            docker stop frontend-staging || true
+                            docker rm frontend-staging || true
+                            docker run -d --name frontend-staging -p 3000:80 ${imageFe}
+                            echo "🚀 Deployed frontend!"
+                            exit
+                        EOF
+                    """
+                }
+            }
+        }
+
+        stage('Deploy Backend via Docker Compose') {
+            steps {
+                sshagent([secret]) {
+                    sh """
+                        ssh -p ${sshPort} -o StrictHostKeyChecking=no ${server} << EOF
+                            cd ${directory}
+                            docker compose down
+                            docker compose pull
+                            docker compose up -d
+                            echo "🚀 Backend deployed!"
+                            exit
+                        EOF
+                    """
+                }
+            }
+        }
+
+        stage('Health Check with wget') {
+            steps {
+                sshagent([secret]) {
+                    sh """
+                        ssh -p ${sshPort} -o StrictHostKeyChecking=no ${server} << EOF
+                                echo "🔎 Checking Frontend..."
+                                if wget --spider -q http://103.127.137.206:3000; then
+                                    echo "✅ Frontend up"
+                                else
+                                    echo "❌ Frontend down"
+                                fi
+
+                                echo "🔎 Checking Backend..."
+                                if wget --spider --server-response -q http://103.127.137.206:5001 2>&1 | grep -q "HTTP/1.1"; then
+                                    echo "✅ Backend up"
+                                else
+                                    echo "❌ Backend down"
+                                fi
+
+                                echo "✅ Health check done"
+                            exit
+                        EOF
+                    """
+                }
+            }
+        }
+    }
+}
+
+
+```
+
+- PENTINGG!!!! PASTIKAN PLUGIN SSH AGENT DAN SONARSCANNER TELAH TERINSTALL DI JENKINS
+- Jika kasusnya ingin menggunakan image yang ada di Docker registry private dapat langsung dengan ex:
+
+```
+  stage ('Pull Docker Image BE') {
+            steps {
+                sshagent([secret]) {
+                    sh """
+                        ssh -p ${sshPort} -o StrictHostKeyChecking=no ${server} << EOF
+                            docker pull ${imageBe}
+                            echo "✅ Image Pull Successfully"
+                            exit
+                        EOF
+                    """
+                }
+            }
+        }
+```
+
+14.
+
+---
+
 ## 7 - Monitoring
 
 **Instructions**
