@@ -972,8 +972,7 @@ scrape_configs:
 - Konfigurasikan lainnya
 
 29. Network I/O (NGINX Monitoring)
-    > [!NOTE]
-    > mendeteksi network spike atau stagnasi, kamu bisa awasi eth0 untuk bandwidth yang sangat tinggi atau sangat rendah.
+    > untuk mendeteksi network spike atau stagnasi, kita bisa awasi eth0 untuk bandwidth yang sangat tinggi atau sangat rendah.
 
 - Masukkan PromQL (Total Receive + Transmit) `rate(node_network_receive_bytes_total{device="eth0"}[2m]) + rate(node_network_transmit_bytes_total{device="eth0"}[2m])`
 - Condition: WHEN > 10000000 ( alert kalau bandwidth > 10MB/s)
