@@ -696,16 +696,16 @@ services:
 - Nama digunakan untuk environtment SonarQube
 
 13. Karena disini saya menggunakan windows, maka memerlukan tunneling agar Jenkins dalam container VPS dapat mengaksesnya. Jika tidak maka akan ada error seperti dibawah
-    ![alt text](<Screenshot 2025-06-27 234137.png>)
+    ![alt text](<img/Screenshot 2025-06-27 234137.png>)
 14. Untuk tunneling dapat menggunakan ngrok. Oleh karena itu, Selanjutnya install ngrok
-    ![alt text](<Screenshot 2025-06-28 003327.png>)
+    ![alt text](<img/Screenshot 2025-06-28 003327.png>)
 15. Lalu di Command Line Interface jalankan `ngrok http 9000` agar dibuatkan reverse proxy pada localhost 9000
-    ![alt text](<Screenshot 2025-06-28 003513.png>)
+    ![alt text](<img/Screenshot 2025-06-28 003513.png>)
 
 16. Konfigurasikan ulang di Jenkins
-    ![alt text](<Screenshot 2025-06-28 003639.png>)
+    ![alt text](<img/Screenshot 2025-06-28 003639.png>)
 17. Masuk ke Manage Jenkins > tool > Scroll kebawah hingga menemukan Sonarscanner > Beri nama sesuai untuk tool tempat sonar scanner
-    ![tool](<Screenshot 2025-06-27 233057.png>)
+    ![tool](<img/Screenshot 2025-06-27 233057.png>)
 
 - Nama tool digunakan untuk directory home tool SonnarScanner
 
@@ -893,7 +893,7 @@ pipeline {
 
 19. Setelah itu kualitas kode aplikasi akan berhasil di testing menggunakan sonarqube dan aplikasi berhasil di deploy.
 
-## ![alt text](<Screenshot 2025-06-27 224143.png>)
+## ![alt text](<img/Screenshot 2025-06-27 224143.png>)
 
 ---
 
