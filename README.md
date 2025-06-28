@@ -672,7 +672,7 @@ services:
 
 7. Buat pipeline untuk finaltask-app staging
 
-8. Install SonarQube
+8. Install SonarQube (Dikarenakan server tidak punya resource yang cukup untuk menjalankan di server maka saya install melalui windows)
 
 9. Akses via browser
 
@@ -682,13 +682,52 @@ services:
 
 - Password: admin
 
-10. Buat Token di sonarqube. Masuk Administrator > Security > User > Click Generate Token > Copy Token
+10. Buat Project dan beri nama yang diganakan untuk Project Key agar testing code dapat ditampilkan di server SonarQube
+    ![ansible](img/sq.png)
+    ![ansible](img/sq2.png)
 
-11. Masukkan Token tersebut di Jenkins. Masuk Jenkins > Manage Jenkins > System > Scroll kebawah > Isi token dengan add server authentication token > Pilih Secret text > Lalu pilih server authentication token yang telah ditambahkan tadi
+11. Buat Token di sonarqube. Masuk Administrator > Security > User > Click Generate Token > Copy Token
+    ![ansible](img/sq-token.png)
 
-12. Masuk ke Manage Jenkins > tool > Scroll kebawah hingga menemukan Sonarscanner > Beri nama sesuai untuk tool tempat sonar scanner
+12. Masukkan Token tersebut di Jenkins. Masuk Jenkins > Manage Jenkins > System > Scroll kebawah > Isi token dengan add server authentication token > Pilih Secret text > Lalu pilih server authentication token yang telah ditambahkan tadi
+    ![ansible](img/sq3.png)
+    ![ansible](img/sq4.png)
 
-13. Di Repo Staging buat Jenkinsfile berikut
+- Nama digunakan untuk environtment SonarQube
+
+13. Karena disini saya menggunakan windows, maka memerlukan tunneling agar Jenkins dalam container VPS dapat mengaksesnya. Jika tidak maka akan ada error seperti dibawah
+    ![alt text](<Screenshot 2025-06-27 234137.png>)
+14. Untuk tunneling dapat menggunakan ngrok. Oleh karena itu, Selanjutnya install ngrok
+    ![alt text](<Screenshot 2025-06-28 003327.png>)
+15. Lalu di Command Line Interface jalankan `ngrok http 9000` agar dibuatkan reverse proxy pada localhost 9000
+    ![alt text](<Screenshot 2025-06-28 003513.png>)
+
+16. Konfigurasikan ulang di Jenkins
+    ![alt text](<Screenshot 2025-06-28 003639.png>)
+17. Masuk ke Manage Jenkins > tool > Scroll kebawah hingga menemukan Sonarscanner > Beri nama sesuai untuk tool tempat sonar scanner
+    ![tool](<Screenshot 2025-06-27 233057.png>)
+
+- Nama tool digunakan untuk directory home tool SonnarScanner
+
+```
+stage('SonarQube Analysis') {
+            environment {
+                scannerHome = tool 'Sonar'
+            }
+            steps {
+                script {
+                    withSonarQubeEnv('jenkins-sq') {
+                        sh "${scannerHome}/bin/sonar-scanner \
+                            -Dsonar.projectKey=Jenkins \
+                            -Dsonar.projectName=Jenkins \
+                            -Dsonar.sources=."
+                    }
+                }
+            }
+}
+```
+
+18. Di Repo Staging buat Jenkinsfile berikut
 
 ```
 def secret = 'finaltask-totywan-app-server'
@@ -852,7 +891,62 @@ pipeline {
         }
 ```
 
-14.
+19. Setelah itu kualitas kode aplikasi akan berhasil di testing menggunakan sonarqube dan aplikasi berhasil di deploy.
+
+## ![alt text](<Screenshot 2025-06-27 224143.png>)
+
+---
+
+# Deployment Production
+
+Deployment untuk lingkungan production belum sepenuhnya diimplementasikan dalam project ini. Namun, dapat dilakukan dengan melakukan penyesuaian pada beberapa aspek berikut:
+
+- Dockerfile Backend & Frontend: Sesuaikan konfigurasi Dockerfile untuk mengoptimalkan keamanan, performa, dan ukuran image.
+
+- Environment Configuration: Ubah variabel .env dan endpoint dari API agar sesuai dengan kebutuhan production.
+
+- Frontend Optimization:
+
+  - Disarankan menggunakan distroless image berbasis Node.js 16 untuk membuat image lebih ringan dan aman.
+
+- Backend Optimization dari staging sebelumnya:
+
+```
+# Stage 1 - Build
+FROM golang:1.16-alpine AS builder
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+# Build binary statically
+RUN CGO_ENABLED=0 GOOS=linux go build -o app .
+
+# Stage 2 - Production (Distroless)
+FROM gcr.io/distroless/static:nonroot
+
+WORKDIR /app
+
+COPY --from=builder /app/app .
+COPY --from=builder /app/.env .  # .env sebaiknya dimount via secret/env, bukan bake ke image
+
+USER nonroot
+EXPOSE 5001
+
+ENTRYPOINT ["/app/app"]
+
+```
+
+| Perubahan                          | Tujuan                                                                                                                                         |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CGO_ENABLED=0`                    | Agar hasil binary bisa jalan di `distroless:static` (karena image distroless tidak punya libc, jadi wajib bikin binary statis agar bisa jalan) |
+| `gcr.io/distroless/static:nonroot` | Runtime image sangat kecil, tidak punya shell atau root user                                                                                   |
+| `USER nonroot`                     | Lebih aman: container tidak jalan sebagai root                                                                                                 |
+
+- Untuk kebutuhan skalabilitas tinggi, dapat mengimplementasikan load balancer.
 
 ---
 
